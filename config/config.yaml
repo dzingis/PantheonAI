@@ -6,9 +6,32 @@ sql:
 
 input:
   sql: "input/sql"
+  docs: "input/docs"
+
+file_sources:
+  - name: pantheon_sql_share
+    type: share
+    path: "\\\\FILESERVER01\\PantheonAI\\SQL"
+    recursive: true
+    include_patterns:
+      - "*.sql"
+
+  - name: pantheon_docs_share
+    type: share
+    path: "\\\\FILESERVER01\\PantheonAI\\Docs"
+    recursive: true
+    include_patterns:
+      - "*.docx"
+      - "*.pdf"
+    exclude_patterns:
+      - "~$*"
+      - "*.tmp"
+      - "*.bak"
 
 output:
-  knowledge: "knowledge/sql"
+  knowledge: "knowledge"
+  sql: "knowledge/sql"
+  docs: "knowledge/docs"
 
 logging:
   level: "INFO"
