@@ -89,20 +89,26 @@ class ShaCache:
         }
         self._dirty = True
 
-    def prune(self, namespace: str, active_keys: Iterable[str]) -> None:
-        """Remove stale keys for one namespace."""
+    def prune(self, namespace: str, active_keys: Iterable[str]) -> int:
+        """Remove stale keys for one namespace.
+
+        Returns the number of removed cache entries.
+        """
 
         active = {self._make_key(namespace, key) for key in active_keys}
         prefix = f"{namespace}::"
 
+        removed = 0
         new_files: dict[str, dict[str, str]] = {}
         for cache_key, entry in self._data["files"].items():
             if cache_key.startswith(prefix) and cache_key not in active:
+                removed += 1
                 self._dirty = True
                 continue
             new_files[cache_key] = entry
 
         self._data["files"] = new_files
+        return removed
 
     def save(self) -> None:
         """Persist the cache to disk."""
