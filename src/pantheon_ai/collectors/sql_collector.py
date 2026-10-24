@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Iterable, List
 import hashlib
 
+from pantheon_ai.utils.sha_cache import ShaCache
+
 
 @dataclass(slots=True)
 class SqlDocument:
@@ -30,12 +32,15 @@ class SqlDocument:
 class SqlCollector:
     """Collects SQL files from a folder tree."""
 
-    def __init__(self, input_folder: str | Path):
+    CACHE_NAMESPACE = "sql"
+
+    def __init__(self, input_folder: str | Path, cache_file: str | Path | None = None):
         self.input_folder = Path(input_folder)
         if not self.input_folder.exists():
             raise FileNotFoundError(f"Input folder not found: {self.input_folder}")
         if not self.input_folder.is_dir():
             raise NotADirectoryError(f"Input folder is not a directory: {self.input_folder}")
+        self.cache_file = Path(cache_file) if cache_file is not None else None
 
     def scan(self) -> List[Path]:
         """Return all ``.sql`` files under ``input_folder`` recursively."""
@@ -65,23 +70,43 @@ class SqlCollector:
             size=len(raw),
         )
 
-    def collect(self) -> List[SqlDocument]:
-        """Collect all SQL documents from disk."""
+    def collect(self, changed_only: bool = False) -> List[SqlDocument]:
+        """Collect SQL documents from disk.
+
+        When ``changed_only`` is ``True`` and a cache file is configured,
+        only new or modified files are returned.
+        """
+
         documents: List[SqlDocument] = []
+        cache = ShaCache(self.cache_file) if self.cache_file is not None else None
+        current_keys: list[str] = []
+
         for file_path in self.scan():
             try:
-                documents.append(self.read_file(file_path))
+                document = self.read_file(file_path)
+                cache_key = self._cache_key(file_path)
+                current_keys.append(cache_key)
+
+                if cache is not None:
+                    previous_sha = cache.get(self.CACHE_NAMESPACE, cache_key)
+                    if changed_only and previous_sha == document.sha256:
+                        continue
+                    cache.set(self.CACHE_NAMESPACE, cache_key, document.sha256)
+
+                documents.append(document)
             except Exception as exc:  # pragma: no cover - collector should continue
                 print(f"[ERROR] {file_path}: {exc}")
+
+        if cache is not None:
+            cache.prune(self.CACHE_NAMESPACE, current_keys)
+            cache.save()
+
         return documents
 
-    def collect_iter(self) -> Iterable[SqlDocument]:
+    def collect_iter(self, changed_only: bool = False) -> Iterable[SqlDocument]:
         """Yield documents one by one."""
-        for file_path in self.scan():
-            try:
-                yield self.read_file(file_path)
-            except Exception as exc:  # pragma: no cover - collector should continue
-                print(f"[ERROR] {file_path}: {exc}")
+        for document in self.collect(changed_only=changed_only):
+            yield document
 
     @staticmethod
     def _detect_encoding(raw: bytes) -> str:
@@ -100,6 +125,10 @@ class SqlCollector:
             except UnicodeDecodeError:
                 continue
         return "utf-8"
+
+    def _cache_key(self, file_path: Path) -> str:
+        relative = file_path.relative_to(self.input_folder)
+        return relative.as_posix()
 
 
 if __name__ == "__main__":
