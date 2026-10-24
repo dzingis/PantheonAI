@@ -6,7 +6,7 @@ This module provides a small CLI for Sprint 1:
 - build Markdown knowledge documents
 - build Word/PDF knowledge documents
 - skip unchanged files using a SHA cache
-- clean stale cache entries for deleted files
+- clean stale SHA cache entries
 
 Usage examples
 --------------
@@ -14,6 +14,8 @@ python -m pantheon_ai.cli scan
 python -m pantheon_ai.cli parse
 python -m pantheon_ai.cli build
 python -m pantheon_ai.cli clean
+python -m pantheon_ai.cli clean --sql-only
+python -m pantheon_ai.cli clean --docs-only
 """
 
 from __future__ import annotations
@@ -90,7 +92,19 @@ def build_parser() -> ArgumentParser:
     subparsers.add_parser("scan", help="Scan SQL files and print a summary")
     subparsers.add_parser("parse", help="Scan and parse SQL files")
     subparsers.add_parser("build", help="Build SQL and document Markdown knowledge files")
-    subparsers.add_parser("clean", help="Prune cache entries for deleted files")
+
+    clean_parser = subparsers.add_parser("clean", help="Clean stale SHA cache entries")
+    clean_group = clean_parser.add_mutually_exclusive_group()
+    clean_group.add_argument(
+        "--sql-only",
+        action="store_true",
+        help="Clean only SQL cache entries",
+    )
+    clean_group.add_argument(
+        "--docs-only",
+        action="store_true",
+        help="Clean only Word/PDF cache entries",
+    )
 
     return parser
 
@@ -132,7 +146,14 @@ def main(argv: Iterable[str] | None = None) -> int:
         return 0
 
     if args.command == "clean":
-        _run_clean(sql_input_dir, docs_input_dir, cache_file, logger)
+        _run_clean(
+            sql_input_dir=sql_input_dir,
+            docs_input_dir=docs_input_dir,
+            cache_file=cache_file,
+            logger=logger,
+            sql_only=args.sql_only,
+            docs_only=args.docs_only,
+        )
         return 0
 
     parser.error(f"Unknown command: {args.command}")
@@ -210,27 +231,57 @@ def _run_build_documents(
     logger.info("Document build complete. Markdown files written: %s", written)
 
 
-def _run_clean(sql_input_dir: Path, docs_input_dir: Path, cache_file: Path, logger) -> None:
-    if not cache_file.exists():
-        logger.info("No cache file found at %s", cache_file)
-        return
-
+def _run_clean(
+    *,
+    sql_input_dir: Path,
+    docs_input_dir: Path,
+    cache_file: Path,
+    logger,
+    sql_only: bool,
+    docs_only: bool,
+) -> None:
     cache = ShaCache(cache_file)
     removed_total = 0
 
-    sql_collector = SqlCollector(sql_input_dir, cache_file=cache_file)
-    removed_total += cache.prune(sql_collector.CACHE_NAMESPACE, _scan_keys(sql_input_dir, sql_collector.scan()))
-
-    if docs_input_dir.exists():
-        word_collector = WordCollector(docs_input_dir, cache_file=cache_file)
-        pdf_collector = PdfCollector(docs_input_dir, cache_file=cache_file)
-        removed_total += cache.prune(word_collector.CACHE_NAMESPACE, _scan_keys(docs_input_dir, word_collector.scan()))
-        removed_total += cache.prune(pdf_collector.CACHE_NAMESPACE, _scan_keys(docs_input_dir, pdf_collector.scan()))
-    else:
-        logger.warning("Document input folder does not exist: %s", docs_input_dir)
+    if not sql_only and not docs_only:
+        removed_total += _prune_sql_cache(cache, sql_input_dir)
+        removed_total += _prune_docs_cache(cache, docs_input_dir)
+    elif sql_only:
+        removed_total += _prune_sql_cache(cache, sql_input_dir)
+    elif docs_only:
+        removed_total += _prune_docs_cache(cache, docs_input_dir)
 
     cache.save()
     logger.info("Cache clean complete. Removed %s stale entries.", removed_total)
+
+
+def _prune_sql_cache(cache: ShaCache, sql_input_dir: Path) -> int:
+    if not sql_input_dir.exists():
+        return 0
+    collector = SqlCollector(sql_input_dir)
+    active_keys = _scan_keys(sql_input_dir, collector.scan())
+    return cache.prune(collector.CACHE_NAMESPACE, active_keys)
+
+
+def _prune_docs_cache(cache: ShaCache, docs_input_dir: Path) -> int:
+    if not docs_input_dir.exists():
+        return 0
+
+    removed_total = 0
+
+    word_collector = WordCollector(docs_input_dir)
+    removed_total += cache.prune(
+        word_collector.CACHE_NAMESPACE,
+        _scan_keys(docs_input_dir, word_collector.scan()),
+    )
+
+    pdf_collector = PdfCollector(docs_input_dir)
+    removed_total += cache.prune(
+        pdf_collector.CACHE_NAMESPACE,
+        _scan_keys(docs_input_dir, pdf_collector.scan()),
+    )
+
+    return removed_total
 
 
 def _scan_keys(root: Path, files: Iterable[Path]) -> list[str]:
