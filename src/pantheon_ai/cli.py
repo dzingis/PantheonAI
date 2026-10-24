@@ -5,6 +5,7 @@ This module provides a small CLI for Sprint 1:
 - parse SQL files
 - build Markdown knowledge documents
 - build Word/PDF knowledge documents
+- skip unchanged files using a SHA cache
 
 Usage examples
 --------------
@@ -32,6 +33,7 @@ DEFAULT_DOC_INPUT_DIR = Path("input") / "docs"
 DEFAULT_SQL_OUTPUT_DIR = Path("knowledge") / "sql"
 DEFAULT_DOC_OUTPUT_DIR = Path("knowledge") / "docs"
 DEFAULT_LOG_DIR = Path("logs")
+DEFAULT_CACHE_FILE = Path(".cache") / "pantheon_ai_sha.json"
 
 
 def build_parser() -> ArgumentParser:
@@ -61,6 +63,12 @@ def build_parser() -> ArgumentParser:
         dest="docs_output_dir",
         default=str(DEFAULT_DOC_OUTPUT_DIR),
         help="Output directory for Word/PDF Markdown files (default: knowledge/docs)",
+    )
+    parser.add_argument(
+        "--cache-file",
+        dest="cache_file",
+        default=str(DEFAULT_CACHE_FILE),
+        help="JSON file used to track SHA hashes and skip unchanged files",
     )
     parser.add_argument(
         "--log-dir",
@@ -99,8 +107,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     docs_input_dir = Path(args.docs_input_dir)
     sql_output_dir = Path(args.output_dir)
     docs_output_dir = Path(args.docs_output_dir)
+    cache_file = Path(args.cache_file)
 
-    sql_collector = SqlCollector(sql_input_dir)
+    sql_collector = SqlCollector(sql_input_dir, cache_file=cache_file)
     sql_parser = SqlParser()
     sql_generator = MarkdownGenerator(sql_output_dir)
     doc_generator = DocumentMarkdownGenerator(docs_output_dir)
@@ -115,7 +124,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if args.command == "build":
         _run_build(sql_collector, sql_parser, sql_generator, logger)
-        _run_build_documents(docs_input_dir, doc_generator, logger)
+        _run_build_documents(docs_input_dir, doc_generator, cache_file, logger)
         return 0
 
     parser.error(f"Unknown command: {args.command}")
@@ -130,7 +139,7 @@ def _run_scan(collector: SqlCollector, logger) -> None:
 
 
 def _run_parse(collector: SqlCollector, sql_parser: SqlParser, logger) -> None:
-    documents = collector.collect()
+    documents = collector.collect(changed_only=False)
     logger.info("Collected %s SQL documents", len(documents))
 
     for document in documents:
@@ -153,8 +162,8 @@ def _run_build(
     generator: MarkdownGenerator,
     logger,
 ) -> None:
-    documents = collector.collect()
-    logger.info("Collected %s SQL documents", len(documents))
+    documents = collector.collect(changed_only=True)
+    logger.info("Collected %s changed SQL documents", len(documents))
 
     written = 0
     for document in documents:
@@ -170,17 +179,18 @@ def _run_build(
 def _run_build_documents(
     input_dir: Path,
     generator: DocumentMarkdownGenerator,
+    cache_file: Path,
     logger,
 ) -> None:
     if not input_dir.exists():
         logger.warning("Document input folder does not exist: %s", input_dir)
         return
 
-    word_collector = WordCollector(input_dir)
-    pdf_collector = PdfCollector(input_dir)
+    word_collector = WordCollector(input_dir, cache_file=cache_file)
+    pdf_collector = PdfCollector(input_dir, cache_file=cache_file)
 
-    documents = word_collector.collect() + pdf_collector.collect()
-    logger.info("Collected %s non-SQL documents", len(documents))
+    documents = word_collector.collect(changed_only=True) + pdf_collector.collect(changed_only=True)
+    logger.info("Collected %s changed non-SQL documents", len(documents))
 
     written = 0
     for document in documents:
