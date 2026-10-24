@@ -6,12 +6,14 @@ This module provides a small CLI for Sprint 1:
 - build Markdown knowledge documents
 - build Word/PDF knowledge documents
 - skip unchanged files using a SHA cache
+- clean stale cache entries for deleted files
 
 Usage examples
 --------------
 python -m pantheon_ai.cli scan
 python -m pantheon_ai.cli parse
 python -m pantheon_ai.cli build
+python -m pantheon_ai.cli clean
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from pantheon_ai.collectors.word_collector import WordCollector
 from pantheon_ai.generators.document_markdown_generator import DocumentMarkdownGenerator
 from pantheon_ai.generators.markdown_generator import MarkdownGenerator
 from pantheon_ai.utils.logger import get_logger
+from pantheon_ai.utils.sha_cache import ShaCache
 
 DEFAULT_SQL_INPUT_DIR = Path("input") / "sql"
 DEFAULT_DOC_INPUT_DIR = Path("input") / "docs"
@@ -87,6 +90,7 @@ def build_parser() -> ArgumentParser:
     subparsers.add_parser("scan", help="Scan SQL files and print a summary")
     subparsers.add_parser("parse", help="Scan and parse SQL files")
     subparsers.add_parser("build", help="Build SQL and document Markdown knowledge files")
+    subparsers.add_parser("clean", help="Prune cache entries for deleted files")
 
     return parser
 
@@ -125,6 +129,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.command == "build":
         _run_build(sql_collector, sql_parser, sql_generator, logger)
         _run_build_documents(docs_input_dir, doc_generator, cache_file, logger)
+        return 0
+
+    if args.command == "clean":
+        _run_clean(sql_input_dir, docs_input_dir, cache_file, logger)
         return 0
 
     parser.error(f"Unknown command: {args.command}")
@@ -200,6 +208,33 @@ def _run_build_documents(
         logger.info("Wrote document Markdown: %s", output_path)
 
     logger.info("Document build complete. Markdown files written: %s", written)
+
+
+def _run_clean(sql_input_dir: Path, docs_input_dir: Path, cache_file: Path, logger) -> None:
+    if not cache_file.exists():
+        logger.info("No cache file found at %s", cache_file)
+        return
+
+    cache = ShaCache(cache_file)
+    removed_total = 0
+
+    sql_collector = SqlCollector(sql_input_dir, cache_file=cache_file)
+    removed_total += cache.prune(sql_collector.CACHE_NAMESPACE, _scan_keys(sql_input_dir, sql_collector.scan()))
+
+    if docs_input_dir.exists():
+        word_collector = WordCollector(docs_input_dir, cache_file=cache_file)
+        pdf_collector = PdfCollector(docs_input_dir, cache_file=cache_file)
+        removed_total += cache.prune(word_collector.CACHE_NAMESPACE, _scan_keys(docs_input_dir, word_collector.scan()))
+        removed_total += cache.prune(pdf_collector.CACHE_NAMESPACE, _scan_keys(docs_input_dir, pdf_collector.scan()))
+    else:
+        logger.warning("Document input folder does not exist: %s", docs_input_dir)
+
+    cache.save()
+    logger.info("Cache clean complete. Removed %s stale entries.", removed_total)
+
+
+def _scan_keys(root: Path, files: Iterable[Path]) -> list[str]:
+    return [path.relative_to(root).as_posix() for path in files]
 
 
 def _relative_output_path(document: SqlDocument | object) -> str:
