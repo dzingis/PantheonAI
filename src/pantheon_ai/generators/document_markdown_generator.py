@@ -46,6 +46,7 @@ class DocumentMarkdownGenerator:
         lines.append("## Source")
         lines.append("")
         lines.append(f"- Original file: {document.absolute_path or 'Unknown'}")
+        lines.append(f"- Direct file URL: {self._to_file_uri(document.absolute_path) if document.absolute_path else 'Unknown'}")
         lines.append(f"- Original name: {document.filename or document.document_name or 'Unknown'}")
         lines.append(f"- Source type: {document.source_name}")
         lines.append("")
@@ -89,6 +90,13 @@ class DocumentMarkdownGenerator:
         if not safe:
             safe = "unknown_document"
         return f"{safe}.md"
+
+    @staticmethod
+    def _to_file_uri(path: str | Path) -> str:
+        try:
+            return Path(path).resolve().as_uri()
+        except Exception:
+            return str(path)
 
     @staticmethod
     def _title(document: DocumentObject) -> str:
