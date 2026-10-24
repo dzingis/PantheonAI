@@ -4,6 +4,7 @@ This module provides a small CLI for Sprint 1:
 - scan SQL files
 - parse SQL files
 - build Markdown knowledge documents
+- build Word/PDF knowledge documents
 
 Usage examples
 --------------
@@ -19,12 +20,17 @@ from pathlib import Path
 from typing import Iterable
 
 from pantheon_ai.analyzers.sql_parser import SqlParser
+from pantheon_ai.collectors.pdf_collector import PdfCollector
 from pantheon_ai.collectors.sql_collector import SqlCollector, SqlDocument
+from pantheon_ai.collectors.word_collector import WordCollector
+from pantheon_ai.generators.document_markdown_generator import DocumentMarkdownGenerator
 from pantheon_ai.generators.markdown_generator import MarkdownGenerator
 from pantheon_ai.utils.logger import get_logger
 
-DEFAULT_INPUT_DIR = Path("input") / "sql"
-DEFAULT_OUTPUT_DIR = Path("knowledge") / "sql"
+DEFAULT_SQL_INPUT_DIR = Path("input") / "sql"
+DEFAULT_DOC_INPUT_DIR = Path("input") / "docs"
+DEFAULT_SQL_OUTPUT_DIR = Path("knowledge") / "sql"
+DEFAULT_DOC_OUTPUT_DIR = Path("knowledge") / "docs"
 DEFAULT_LOG_DIR = Path("logs")
 
 
@@ -35,14 +41,26 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--input",
         dest="input_dir",
-        default=str(DEFAULT_INPUT_DIR),
+        default=str(DEFAULT_SQL_INPUT_DIR),
         help="Input directory containing .sql files (default: input/sql)",
+    )
+    parser.add_argument(
+        "--docs-input",
+        dest="docs_input_dir",
+        default=str(DEFAULT_DOC_INPUT_DIR),
+        help="Input directory containing Word/PDF files (default: input/docs)",
     )
     parser.add_argument(
         "--output",
         dest="output_dir",
-        default=str(DEFAULT_OUTPUT_DIR),
-        help="Output directory for Markdown knowledge files (default: knowledge/sql)",
+        default=str(DEFAULT_SQL_OUTPUT_DIR),
+        help="Output directory for SQL Markdown files (default: knowledge/sql)",
+    )
+    parser.add_argument(
+        "--docs-output",
+        dest="docs_output_dir",
+        default=str(DEFAULT_DOC_OUTPUT_DIR),
+        help="Output directory for Word/PDF Markdown files (default: knowledge/docs)",
     )
     parser.add_argument(
         "--log-dir",
@@ -60,7 +78,7 @@ def build_parser() -> ArgumentParser:
 
     subparsers.add_parser("scan", help="Scan SQL files and print a summary")
     subparsers.add_parser("parse", help="Scan and parse SQL files")
-    subparsers.add_parser("build", help="Build Markdown knowledge documents")
+    subparsers.add_parser("build", help="Build SQL and document Markdown knowledge files")
 
     return parser
 
@@ -77,23 +95,27 @@ def main(argv: Iterable[str] | None = None) -> int:
         level=10 if args.verbose else 20,
     )
 
-    input_dir = Path(args.input_dir)
-    output_dir = Path(args.output_dir)
+    sql_input_dir = Path(args.input_dir)
+    docs_input_dir = Path(args.docs_input_dir)
+    sql_output_dir = Path(args.output_dir)
+    docs_output_dir = Path(args.docs_output_dir)
 
-    collector = SqlCollector(input_dir)
+    sql_collector = SqlCollector(sql_input_dir)
     sql_parser = SqlParser()
-    generator = MarkdownGenerator(output_dir)
+    sql_generator = MarkdownGenerator(sql_output_dir)
+    doc_generator = DocumentMarkdownGenerator(docs_output_dir)
 
     if args.command == "scan":
-        _run_scan(collector, logger)
+        _run_scan(sql_collector, logger)
         return 0
 
     if args.command == "parse":
-        _run_parse(collector, sql_parser, logger)
+        _run_parse(sql_collector, sql_parser, logger)
         return 0
 
     if args.command == "build":
-        _run_build(collector, sql_parser, generator, logger)
+        _run_build(sql_collector, sql_parser, sql_generator, logger)
+        _run_build_documents(docs_input_dir, doc_generator, logger)
         return 0
 
     parser.error(f"Unknown command: {args.command}")
@@ -140,15 +162,40 @@ def _run_build(
         relative_path = _relative_output_path(document)
         output_path = generator.generate(sql_object, relative_path=relative_path)
         written += 1
-        logger.info("Wrote Markdown: %s", output_path)
+        logger.info("Wrote SQL Markdown: %s", output_path)
 
-    logger.info("Build complete. Markdown files written: %s", written)
+    logger.info("SQL build complete. Markdown files written: %s", written)
 
 
-def _relative_output_path(document: SqlDocument) -> str:
-    """Map an input SQL file location to a mirrored knowledge path."""
+def _run_build_documents(
+    input_dir: Path,
+    generator: DocumentMarkdownGenerator,
+    logger,
+) -> None:
+    if not input_dir.exists():
+        logger.warning("Document input folder does not exist: %s", input_dir)
+        return
 
-    relative = Path(document.relative_path)
+    word_collector = WordCollector(input_dir)
+    pdf_collector = PdfCollector(input_dir)
+
+    documents = word_collector.collect() + pdf_collector.collect()
+    logger.info("Collected %s non-SQL documents", len(documents))
+
+    written = 0
+    for document in documents:
+        relative_path = _relative_output_path(document)
+        output_path = generator.generate(document, relative_path=relative_path)
+        written += 1
+        logger.info("Wrote document Markdown: %s", output_path)
+
+    logger.info("Document build complete. Markdown files written: %s", written)
+
+
+def _relative_output_path(document: SqlDocument | object) -> str:
+    """Map an input file location to a mirrored knowledge path."""
+
+    relative = Path(getattr(document, "relative_path", ""))
     if str(relative) == ".":
         return ""
     return str(relative)
