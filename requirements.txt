@@ -1,0 +1,4 @@
+pyodbc
+PyYAML
+rich
+charset-normalizer
