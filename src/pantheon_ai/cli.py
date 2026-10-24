@@ -198,7 +198,11 @@ def _run_build(
     for document in documents:
         sql_object = sql_parser.parse(document)
         relative_path = _relative_output_path(document)
-        output_path = generator.generate(sql_object, relative_path=relative_path)
+        output_path = generator.generate(
+            sql_object,
+            relative_path=relative_path,
+            source_path=document.absolute_path,
+        )
         written += 1
         logger.info("Wrote SQL Markdown: %s", output_path)
 
