@@ -2,3 +2,5 @@ pyodbc
 PyYAML
 rich
 charset-normalizer
+python-docx
+pypdf
