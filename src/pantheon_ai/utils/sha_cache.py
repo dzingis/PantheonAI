@@ -90,10 +90,7 @@ class ShaCache:
         self._dirty = True
 
     def prune(self, namespace: str, active_keys: Iterable[str]) -> int:
-        """Remove stale keys for one namespace.
-
-        Returns the number of removed cache entries.
-        """
+        """Remove stale keys for one namespace and return the number removed."""
 
         active = {self._make_key(namespace, key) for key in active_keys}
         prefix = f"{namespace}::"
