@@ -6,10 +6,9 @@ friendly for downstream indexing and retrieval.
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
-from datetime import datetime
 import re
 
 from pantheon_ai.analyzers.sql_parser import SqlObject
@@ -22,7 +21,12 @@ class MarkdownGenerator:
         self.output_folder = Path(output_folder)
         self.output_folder.mkdir(parents=True, exist_ok=True)
 
-    def generate(self, sql_object: SqlObject, relative_path: str | Path | None = None) -> Path:
+    def generate(
+        self,
+        sql_object: SqlObject,
+        relative_path: str | Path | None = None,
+        source_path: str | Path | None = None,
+    ) -> Path:
         """Generate a Markdown file for one SQL object.
 
         Parameters
@@ -32,6 +36,9 @@ class MarkdownGenerator:
         relative_path:
             Optional relative path inside the knowledge folder. When omitted,
             the file is written directly into the generator output folder.
+        source_path:
+            Optional original source file path. When provided, the generated
+            Markdown includes a Source section that points back to the SQL file.
         """
 
         target_dir = self.output_folder
@@ -41,24 +48,42 @@ class MarkdownGenerator:
 
         file_name = self._build_file_name(sql_object)
         output_path = target_dir / file_name
-        output_path.write_text(self.build_markdown(sql_object), encoding="utf-8")
+        output_path.write_text(
+            self.build_markdown(sql_object, source_path=source_path),
+            encoding="utf-8",
+        )
         return output_path
 
     def generate_many(
         self,
         sql_objects: Iterable[SqlObject],
         relative_path: str | Path | None = None,
+        source_path: str | Path | None = None,
     ) -> list[Path]:
         """Generate Markdown files for many SQL objects."""
 
-        return [self.generate(sql_object, relative_path=relative_path) for sql_object in sql_objects]
+        return [
+            self.generate(sql_object, relative_path=relative_path, source_path=source_path)
+            for sql_object in sql_objects
+        ]
 
-    def build_markdown(self, sql_object: SqlObject) -> str:
+    def build_markdown(self, sql_object: SqlObject, source_path: str | Path | None = None) -> str:
         """Build Markdown content without writing it to disk."""
 
         lines: list[str] = []
 
         lines.append(f"# {self._title(sql_object)}")
+        lines.append("")
+        lines.append("## Source")
+        lines.append("")
+        if source_path:
+            source = Path(source_path)
+            lines.append(f"- Original file: {source}")
+            lines.append(f"- Original name: {source.name}")
+        else:
+            lines.append("- Original file: Unknown")
+            lines.append(f"- Original name: {sql_object.name or 'Unknown'}")
+        lines.append(f"- Source type: SQL")
         lines.append("")
         lines.append("## Metadata")
         lines.append("")
@@ -126,10 +151,10 @@ class MarkdownGenerator:
 
         return "\n".join(lines)
 
-    def preview(self, sql_object: SqlObject) -> str:
+    def preview(self, sql_object: SqlObject, source_path: str | Path | None = None) -> str:
         """Return Markdown content without saving it."""
 
-        return self.build_markdown(sql_object)
+        return self.build_markdown(sql_object, source_path=source_path)
 
     def _build_file_name(self, sql_object: SqlObject) -> str:
         base = sql_object.name or "unknown_sql_object"
@@ -169,4 +194,4 @@ END
     )
 
     generator = MarkdownGenerator(Path("knowledge") / "sql")
-    print(generator.preview(sample))
+    print(generator.preview(sample, source_path=r"D:\Projects\PantheonAI\input\sql\pHE_Test.sql"))
