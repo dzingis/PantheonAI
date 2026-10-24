@@ -43,6 +43,12 @@ class DocumentMarkdownGenerator:
 
         lines.append(f"# {self._title(document)}")
         lines.append("")
+        lines.append("## Source")
+        lines.append("")
+        lines.append(f"- Original file: {document.absolute_path or 'Unknown'}")
+        lines.append(f"- Original name: {document.filename or document.document_name or 'Unknown'}")
+        lines.append(f"- Source type: {document.source_name}")
+        lines.append("")
         lines.append("## Metadata")
         lines.append("")
         lines.append(f"- Source Type: {document.source_name}")
