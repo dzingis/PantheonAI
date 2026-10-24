@@ -79,9 +79,11 @@ class MarkdownGenerator:
         if source_path:
             source = Path(source_path)
             lines.append(f"- Original file: {source}")
+            lines.append(f"- Direct file URL: {self._to_file_uri(source)}")
             lines.append(f"- Original name: {source.name}")
         else:
             lines.append("- Original file: Unknown")
+            lines.append("- Direct file URL: Unknown")
             lines.append(f"- Original name: {sql_object.name or 'Unknown'}")
         lines.append(f"- Source type: SQL")
         lines.append("")
@@ -162,6 +164,13 @@ class MarkdownGenerator:
         if not safe:
             safe = "unknown_sql_object"
         return f"{safe}.md"
+
+    @staticmethod
+    def _to_file_uri(path: str | Path) -> str:
+        try:
+            return Path(path).resolve().as_uri()
+        except Exception:
+            return str(path)
 
     @staticmethod
     def _title(sql_object: SqlObject) -> str:
