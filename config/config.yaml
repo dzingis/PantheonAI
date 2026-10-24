@@ -1,0 +1,15 @@
+sql:
+  driver: "{ODBC Driver 17 for SQL Server}"
+  server: ""
+  database: ""
+  trusted_connection: true
+
+input:
+  sql: "input/sql"
+
+output:
+  knowledge: "knowledge/sql"
+
+logging:
+  level: "INFO"
+  file: "logs/pantheon_ai.log"
